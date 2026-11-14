@@ -57,6 +57,34 @@ def parse_addr(s: str) -> int | None:
     return None
 
 
+ESP_IMAGE_MAGIC = 0xE9
+PART_TABLE_MAGIC = b"\xaa\x50"
+
+
+def find_partition_table(data: bytes) -> int | None:
+    """Sucht eine Partitionstabelle (Magic 0xAA50) an 4-KB-Grenzen – typisch 0x8000."""
+    limit = min(len(data) - 32, 0x40000)
+    for off in range(0x1000, limit + 1, 0x1000):
+        if data[off:off + 2] == PART_TABLE_MAGIC and data[off + 2] in (0x00, 0x01):
+            return off
+    return None
+
+
+def analyze_image(data: bytes, name: str) -> str:
+    """Bestimmt die Art einer .bin-Datei – zuerst am Inhalt, dann am Namen.
+
+    Gesamt-Images (idf.py merge-bin / esptool merge-bin, Arduino „merged“) enthalten
+    Bootloader + Partitionstabelle + App und gehören immer an Adresse 0x0 – egal, wie
+    die Datei heißt.
+    """
+    if data[:2] == PART_TABLE_MAGIC:
+        return "partitions"
+    pt = find_partition_table(data)
+    if pt is not None and any(len(data) > o and data[o] == ESP_IMAGE_MAGIC for o in (0x0, 0x1000, 0x2000)):
+        return "merged"
+    return guess_role(name)
+
+
 def guess_role(name: str) -> str:
     n = name.lower()
     if re.search(r"merged|factory|combined|full[_-]?flash|_full\b", n):
@@ -87,6 +115,7 @@ class FileEntry:
     address: str
     role: str
     widgets: dict = field(default_factory=dict)
+    image: str = ""    # am Inhalt erkannte Art (merged, partitions, app, …)
 
 
 # ---------------------------------------------------------------------------
@@ -896,12 +925,18 @@ class MainWindow(QMainWindow):
                         existing.data, existing.path = data, str(p)
                         self.toast(f"{p.name} aktualisiert.")
                         continue
-                    if p.name in mem:
-                        role, addr = "manual", mem[p.name]
-                    else:
-                        role = guess_role(p.name)
+                    detected = analyze_image(data, p.name)
+                    if detected in ("merged", "partitions") or p.name not in mem:
+                        # Gesamt-Images und Partitionstabellen werden am Inhalt erkannt → feste Adresse
+                        role = detected
                         addr = fmt_hex(self.addr_for_role(role))
-                    self.files.append(FileEntry(p.name, str(p), "bin", data, addr, role))
+                    else:
+                        role, addr = "manual", mem[p.name]
+                    entry = FileEntry(p.name, str(p), "bin", data, addr, role)
+                    entry.image = detected
+                    self.files.append(entry)
+                    if detected == "merged":
+                        self.toast(f"{p.name}: Gesamt-Image erkannt (Bootloader + Partitionstabelle + App) → 0x0")
                 else:
                     self.toast(f"{p.name}: nur .bin- und .hex-Dateien werden unterstützt.", "warn")
             except Exception as exc:  # noqa: BLE001
@@ -968,7 +1003,8 @@ class MainWindow(QMainWindow):
             nl = QVBoxLayout(nm)
             nl.setContentsMargins(6, 4, 6, 4)
             nl.setSpacing(4)
-            lab = QLabel(f.name + ("   [HEX]" if f.kind == "hex" else ""))
+            tag = "   [HEX]" if f.kind == "hex" else "   [GESAMT-IMAGE]" if f.image == "merged" else ""
+            lab = QLabel(f.name + tag)
             lab.setToolTip(f.path)
             lab.setStyleSheet("font-size: 9pt;")
             bar = QProgressBar()
@@ -1140,7 +1176,34 @@ class MainWindow(QMainWindow):
         self.size_combo.clear()
         self.size_combo.addItems(["keep", "detect"] + sizes)
 
+    def _check_merged_addresses(self) -> bool:
+        """Warnt, wenn ein Gesamt-Image nicht an 0x0 geschrieben werden soll. False = abbrechen."""
+        wrong = [f for f in self.files if f.image == "merged" and parse_addr(f.address) not in (0, None)]
+        if not wrong:
+            return True
+        names = "\n".join(f"• {f.name}  (aktuell {f.address})" for f in wrong)
+        box = QMessageBox(self)
+        box.setIcon(QMessageBox.Icon.Warning)
+        box.setWindowTitle("Gesamt-Image an falscher Adresse")
+        box.setText("Diese Datei(en) enthalten Bootloader, Partitionstabelle und Anwendung und müssen "
+                    f"an Adresse 0x0 geschrieben werden:\n\n{names}\n\n"
+                    "An einer anderen Adresse startet das Programm danach nicht.")
+        fix = box.addButton("Auf 0x0 korrigieren", QMessageBox.ButtonRole.AcceptRole)
+        keep = box.addButton("Trotzdem so flashen", QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton("Abbrechen", QMessageBox.ButtonRole.RejectRole)
+        box.setDefaultButton(fix)
+        box.exec()
+        if box.clickedButton() is fix:
+            for f in wrong:
+                f.address, f.role = "0x0", "merged"
+            self.sort_files()
+            self.render_files()
+            return True
+        return box.clickedButton() is keep
+
     def do_program(self) -> None:
+        if not self._check_merged_addresses():
+            return
         err = self.validate_files()
         if err:
             self.toast(err, "err", 7000)

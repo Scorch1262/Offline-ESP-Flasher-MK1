@@ -37,8 +37,8 @@ def selftest(out: str) -> int:
         app = QApplication([sys.argv[0]])
         from espflash.mainwindow import MainWindow
         w = MainWindow(None)
-        w.close()
-        app.quit()
+        w._port_timer.stop()
+        app.processEvents()
         lines.append("gui=ok")
     except Exception as exc:  # noqa: BLE001
         import traceback
@@ -52,7 +52,10 @@ def selftest(out: str) -> int:
 def main() -> int:
     if "--selftest" in sys.argv:
         i = sys.argv.index("--selftest")
-        return selftest(sys.argv[i + 1] if i + 1 < len(sys.argv) else "selftest.txt")
+        code = selftest(sys.argv[i + 1] if i + 1 < len(sys.argv) else "selftest.txt")
+        # sofort beenden – verhindert Abstürze beim Aufräumen der Qt-Objekte
+        sys.stdout.flush()
+        os._exit(code)
 
     if sys.platform.startswith("win"):
         try:  # eigenes Taskleisten-Symbol statt Python-Icon
