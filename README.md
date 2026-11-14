@@ -5,7 +5,7 @@ Kein Browser, kein lokaler Webserver: eine einzelne `.exe` mit eigener Oberfläc
 
 ![Screenshot](assets/screenshot.png)
 
-**Version:** 2.0.0 · **esptool:** 5.6.0
+**Version:** 2.1.0 · **esptool:** 5.6.0
 
 ## Funktionen
 
@@ -21,6 +21,7 @@ Alles, was die esptool-js-Seite kann:
 
 Zusätzlich:
 
+- **Terminal direkt nach dem Flashen** – nach erfolgreichem Programmieren wird automatisch die serielle Konsole zum Board geöffnet; auf Wunsch mit Reset, damit das **komplette Boot-Log** ab der ersten Zeile sichtbar ist (bei Boards mit nativem USB wird gewartet, bis sich der Port neu angemeldet hat). Zusätzlich gibt es im verbundenen Zustand den Button **„Terminal öffnen“** (Chip neu starten → Konsole).
 - **Port-Auswahl mit Automatik** – die Liste aktualisiert sich selbst, ein neu eingestecktes Board wird automatisch ausgewählt
 - **Drag & Drop** von `.bin`/`.hex` ins Fenster oder auf die exe (bzw. „Öffnen mit“)
 - **Automatische Adressvorschläge** anhand des Dateinamens (bootloader → chipabhängig 0x0/0x1000/0x2000, partition-table → 0x8000, ota_data → 0xd000, boot_app0 → 0xe000, merged/factory → 0x0, Anwendung → 0x10000); manuell geänderte Adressen werden pro Dateiname gemerkt
@@ -37,7 +38,7 @@ Zusätzlich:
 1. ZIP aus dem GitHub-Release (oder dem Actions-Artefakt) entpacken.
 2. `ESP-Flash-Tool-MK1.exe` starten.
 3. Board per USB anschließen – der Port wird automatisch ausgewählt.
-4. **Verbinden**, Dateien hinzufügen, Adressen prüfen, **Programmieren**.
+4. **Verbinden**, Dateien hinzufügen, Adressen prüfen, **Programmieren** – danach öffnet sich das Terminal zum Board automatisch (abschaltbar über „Nach dem Flashen Terminal öffnen“).
 
 Treiber für USB-UART-Wandler (CP210x, CH34x, FTDI) müssen wie bei jedem Flash-Tool installiert sein. Boards mit nativem USB (ESP32-S3/C3/C6 …) funktionieren ohne Zusatztreiber.
 

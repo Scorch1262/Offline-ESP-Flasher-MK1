@@ -208,6 +208,7 @@ class MainWindow(QMainWindow):
         self._t0 = 0.0
         self._known_ports: list[str] = []
         self._toasts: list[Toast] = []
+        self._auto_term_cancel = False
 
         self._build_ui(icon_path)
         self._wire()
@@ -379,6 +380,9 @@ class MainWindow(QMainWindow):
         self.disconnect_btn = button("Trennen", "warn")
         br.addWidget(self.connect_btn)
         br.addWidget(self.disconnect_btn)
+        self.to_term_btn = button("Terminal öffnen", "teal")
+        self.to_term_btn.setToolTip("Chip neu starten, Flash-Verbindung trennen und die Konsole zum Board öffnen")
+        br.addWidget(self.to_term_btn)
         br.addStretch(1)
         l.addLayout(br)
 
@@ -486,6 +490,22 @@ class MainWindow(QMainWindow):
         self.erase_all_chk = QCheckBox("Gesamten Flash vorher löschen")
         self.erase_all_chk.setObjectName("danger")
         l.addWidget(self.erase_all_chk)
+
+        term_row = QHBoxLayout()
+        self.autocon_chk = QCheckBox("Nach dem Flashen Terminal öffnen")
+        self.autocon_chk.setChecked(True)
+        self.autocon_chk.setToolTip("Trennt nach erfolgreichem Programmieren die Flash-Verbindung und öffnet "
+                                    "sofort die serielle Konsole zum Board (Baudrate aus dem Tab „Konsole“).")
+        self.bootlog_chk = QCheckBox("Komplettes Boot-Log")
+        self.bootlog_chk.setChecked(True)
+        self.bootlog_chk.setToolTip("Löst nach dem Öffnen des Terminals einen Reset aus, damit die Ausgabe ab der "
+                                    "ersten Zeile sichtbar ist (bei Boards mit nativem USB automatisch übersprungen).")
+        self.autocon_chk.toggled.connect(self.bootlog_chk.setEnabled)
+        term_row.addWidget(self.autocon_chk)
+        term_row.addSpacing(16)
+        term_row.addWidget(self.bootlog_chk)
+        term_row.addStretch(1)
+        l.addLayout(term_row)
 
         self.progress_box = QWidget()
         pb = QVBoxLayout(self.progress_box)
@@ -609,6 +629,7 @@ class MainWindow(QMainWindow):
         self.refresh_btn.clicked.connect(lambda: self.refresh_ports(manual=True))
         self.connect_btn.clicked.connect(self.do_connect)
         self.disconnect_btn.clicked.connect(self.do_disconnect)
+        self.to_term_btn.clicked.connect(self.do_to_terminal)
         self.add_bin_btn.clicked.connect(lambda: self.pick_files("bin"))
         self.add_hex_btn.clicked.connect(lambda: self.pick_files("hex"))
         self.clear_files_btn.clicked.connect(self.clear_files)
@@ -635,7 +656,7 @@ class MainWindow(QMainWindow):
         "baud": "baud_combo", "before": "before_combo", "mode": "mode_combo", "after": "after_combo",
         "cbaud": "cbaud_combo", "eol": "eol_combo",
     }
-    _PERSIST_CHK = {"trace": "trace_chk", "nostub": "nostub_chk", "compress": "compress_chk", "skip": "skip_chk",
+    _PERSIST_CHK = {"trace": "trace_chk", "nostub": "nostub_chk", "autocon": "autocon_chk", "bootlog": "bootlog_chk", "compress": "compress_chk", "skip": "skip_chk",
                     "color": "color_chk", "stamp": "stamp_chk"}
 
     def _load_settings(self) -> None:
@@ -784,6 +805,8 @@ class MainWindow(QMainWindow):
 
         self.connect_btn.setVisible(not connected)
         self.disconnect_btn.setVisible(connected)
+        self.to_term_btn.setVisible(connected)
+        self.to_term_btn.setEnabled(not busy)
         self.connect_btn.setEnabled(not busy and have_port)
         self.disconnect_btn.setEnabled(not busy)
         for w in (self.baud_combo, self.before_combo, self.trace_chk, self.nostub_chk):
@@ -796,8 +819,10 @@ class MainWindow(QMainWindow):
         self.read_btn.setEnabled(connected and not busy)
         self.read_full_btn.setEnabled(connected and not busy and bool(self.session.info and self.session.info.flash_bytes))
         for w in (self.add_bin_btn, self.add_hex_btn, self.clear_files_btn, self.mode_combo, self.freq_combo,
-                  self.size_combo, self.after_combo, self.compress_chk, self.skip_chk, self.erase_all_chk):
+                  self.size_combo, self.after_combo, self.compress_chk, self.skip_chk, self.erase_all_chk,
+                  self.autocon_chk):
             w.setEnabled(not busy)
+        self.bootlog_chk.setEnabled(not busy and self.autocon_chk.isChecked())
         for f in self.files:
             for key in ("addr", "rm"):
                 w = f.widgets.get(key)
@@ -1090,15 +1115,21 @@ class MainWindow(QMainWindow):
         self.term.sys(f"Verbinde mit {port} @ {baud} Baud …")
         self._start("connect", lambda: self.session.connect(port, baud, before, trace, no_stub))
 
-    def do_disconnect(self) -> None:
+    def do_disconnect(self, silent: bool = False) -> None:
         self.session.disconnect()
         self.mode = "idle"
         self.freq_combo.clear()
         self.freq_combo.addItem("keep")
         self.size_combo.clear()
         self.size_combo.addItems(["keep", "detect"])
-        self.term.sys("Verbindung getrennt.")
+        if not silent:
+            self.term.sys("Verbindung getrennt.")
         self.update_ui()
+
+    def do_to_terminal(self) -> None:
+        """Chip in die Firmware neu starten und direkt das Terminal öffnen."""
+        self.term.sys("Starte Chip neu und öffne das Terminal …")
+        self._start("toterm", lambda: self.session.reset("hard-reset"))
 
     def _populate_flash_options(self) -> None:
         esp = self.session.esp
@@ -1203,13 +1234,23 @@ class MainWindow(QMainWindow):
             self.show_progress(f"Fertig in {secs:.1f} s", 1.0, "done")
             self.term.sys(f"Programmieren abgeschlossen ({fmt_size(total)} in {secs:.1f} s).", "ok")
             self.toast(f"Erfolgreich programmiert ({secs:.1f} s).")
-            if result in ("hard-reset", "soft-reset", "watchdog-reset"):
+            restarted = result in ("hard-reset", "soft-reset", "watchdog-reset")
+            if self.autocon_chk.isChecked():
+                port = self.session.info.port if self.session.info else self.current_port()
+                self.do_disconnect(silent=True)
+                # ohne Reset läuft die Firmware noch nicht → beim Öffnen des Terminals immer resetten
+                self.open_terminal_after(port, reset=self.bootlog_chk.isChecked() or not restarted)
+            elif restarted:
                 self.term.sys("Chip wurde neu gestartet – Verbindung getrennt. Ausgabe über den Tab „Konsole“ ansehen.", "debug")
                 self.do_disconnect()
         elif task == "erase":
             self.show_progress(f"Flash gelöscht ({secs:.1f} s)", 1.0, "done")
             self.term.sys(f"Flash vollständig gelöscht ({secs:.1f} s).", "ok")
             self.toast("Flash gelöscht.")
+        elif task == "toterm":
+            port = self.session.info.port if self.session.info else self.current_port()
+            self.do_disconnect(silent=True)
+            self.open_terminal_after(port, reset=False)
         elif task == "read":
             self.show_progress(f"Ausgelesen in {secs:.1f} s", 1.0, "done")
             self.term.sys(f"Gespeichert: {self._read_path}", "ok")
@@ -1222,7 +1263,8 @@ class MainWindow(QMainWindow):
         first = msg.strip().splitlines()[0] if msg.strip() else "Unbekannter Fehler"
         self.term.write_kind(f"Fehler: {msg.strip()}\n", "err")
         labels = {"connect": "Verbindung fehlgeschlagen", "flash": "Programmieren fehlgeschlagen",
-                  "erase": "Löschen fehlgeschlagen", "read": "Auslesen fehlgeschlagen"}
+                  "erase": "Löschen fehlgeschlagen", "read": "Auslesen fehlgeschlagen",
+                  "toterm": "Neustart des Chips fehlgeschlagen"}
         self.toast(f"{labels.get(task, 'Fehler')}: {first}", "err", 8000)
         if task == "connect":
             self.mode = "idle"
@@ -1237,32 +1279,82 @@ class MainWindow(QMainWindow):
     def _update_eol(self) -> None:
         self.term.enter_sequence = {"CR+LF": b"\r\n", "LF": b"\n", "CR": b"\r", "keins": b"\r"}[self.eol_combo.currentText()]
 
+    def _console_baud(self) -> int | None:
+        try:
+            return int(self.cbaud_combo.currentText())
+        except ValueError:
+            self.toast("Ungültige Baudrate (Tab „Konsole“).", "err")
+            return None
+
+    def _open_console(self, port: str, baud: int) -> None:
+        """Öffnet die Konsole; wirft eine Ausnahme, wenn der Port nicht geöffnet werden kann."""
+        self.console.reconnect_delay = self.delay_spin.value() / 1000
+        self.console.max_retries = self.retry_spin.value()
+        self.console.colorize = self.color_chk.isChecked()
+        self.console.timestamps = self.stamp_chk.isChecked()
+        self.console.start(port, baud)
+        self.mode = "console"
+        self.tabs.setCurrentIndex(1)
+        self.term.sys(f"Terminal geöffnet: {port} @ {baud} Baud", "note")
+        self.update_ui()
+        self.term.setFocus()
+
     def console_start(self) -> None:
         port = self.current_port()
         if not port:
             self.toast("Kein serieller Port ausgewählt.", "warn")
             return
-        try:
-            baud = int(self.cbaud_combo.currentText())
-        except ValueError:
-            self.toast("Ungültige Baudrate.", "err")
+        baud = self._console_baud()
+        if baud is None:
             return
-        self.console.reconnect_delay = self.delay_spin.value() / 1000
-        self.console.max_retries = self.retry_spin.value()
-        self.console.colorize = self.color_chk.isChecked()
-        self.console.timestamps = self.stamp_chk.isChecked()
         try:
-            self.console.start(port, baud)
+            self._open_console(port, baud)
         except Exception as exc:  # noqa: BLE001
             self.term.write_kind(f"Fehler: {exc}\n", "err")
             self.toast(f"Konsole konnte nicht gestartet werden: {exc}", "err", 8000)
+
+    @staticmethod
+    def _is_native_usb(port: str | None) -> bool:
+        for p in list_ports.comports():
+            if p.device == port:
+                return p.vid == 0x303A
+        return False
+
+    def open_terminal_after(self, port: str | None, reset: bool) -> None:
+        """Terminal nach dem Flashen öffnen – wartet ggf., bis der Port wieder verfügbar ist."""
+        baud = self._console_baud()
+        if not port or baud is None:
             return
-        self.mode = "console"
-        self.term.sys(f"Konsole gestartet: {port} @ {baud} Baud", "note")
-        self.update_ui()
-        self.term.setFocus()
+        native = self._is_native_usb(port)
+        do_reset = reset and not native
+        attempts = max(1, self.retry_spin.value()) * 2
+        delay = max(150, self.delay_spin.value() // 2)
+        self._auto_term_cancel = False
+
+        def attempt(left: int, first: bool) -> None:
+            if self._auto_term_cancel or self.mode != "idle" or self.session.busy:
+                return
+            try:
+                self._open_console(port, baud)
+            except Exception as exc:  # noqa: BLE001
+                if left > 0:
+                    if first:
+                        self.term.sys(f"Warte auf {port} …", "debug")
+                    QTimer.singleShot(delay, lambda: attempt(left - 1, False))
+                else:
+                    self.term.write_kind(f"Fehler: Terminal konnte nicht geöffnet werden: {exc}\n", "err")
+                    self.toast(f"Terminal konnte nicht geöffnet werden: {exc}", "err", 8000)
+                return
+            if do_reset:
+                QTimer.singleShot(80, lambda: self.console_reset(quiet=True))
+            elif reset and native:
+                self.term.sys("Natives USB erkannt – kein zusätzlicher Reset nötig.", "debug")
+
+        # kurz warten, bis der Port nach dem Schließen wieder frei ist (USB-CDC meldet sich neu an)
+        QTimer.singleShot(250 if native else 60, lambda: attempt(attempts, True))
 
     def console_stop(self) -> None:
+        self._auto_term_cancel = True
         self.console.stop()
 
     def on_console_stopped(self) -> None:
@@ -1271,10 +1363,10 @@ class MainWindow(QMainWindow):
             self.term.sys("Konsole gestoppt.")
         self.update_ui()
 
-    def console_reset(self) -> None:
+    def console_reset(self, quiet: bool = False) -> None:
         try:
             self.console.reset()
-            self.term.sys("Reset ausgelöst.", "debug")
+            self.term.sys("Reset ausgelöst – Boot-Log folgt." if quiet else "Reset ausgelöst.", "debug")
         except Exception as exc:  # noqa: BLE001
             self.toast(f"Reset fehlgeschlagen: {exc}", "err")
 

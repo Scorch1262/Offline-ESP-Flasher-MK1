@@ -2,4 +2,4 @@
 
 APP_NAME = "ESP-Flash-Tool-MK1"
 APP_TITLE = "ESP-Flash-Tool MK1"
-APP_VERSION = "2.0.0"
+APP_VERSION = "2.1.0"
