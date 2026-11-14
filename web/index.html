@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>ESP-Flash-Tool MK1</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml" />
+  <link rel="stylesheet" href="dist/xterm.css" />
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <svg class="logo" viewBox="0 0 32 32" aria-hidden="true">
+        <rect x="8" y="8" width="16" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="2"/>
+        <rect x="12.5" y="12.5" width="7" height="7" fill="currentColor"/>
+        <path d="M12 3v4M16 3v4M20 3v4M12 25v4M16 25v4M20 25v4M3 12h4M3 16h4M3 20h4M25 12h4M25 16h4M25 20h4" stroke="currentColor" stroke-width="2"/>
+      </svg>
+      <div>
+        <div class="title">ESP-FLASH-TOOL <span class="accent">MK1</span></div>
+        <div class="subtitle">Serieller Flasher für Espressif-Chips · vollständig offline</div>
+      </div>
+    </div>
+    <div class="top-right">
+      <div class="stat">
+        <span class="stat-label">Gerät</span>
+        <span class="stat-value" id="topDevice">—</span>
+      </div>
+      <div class="stat">
+        <span class="stat-label">Modus</span>
+        <span class="stat-value" id="topMode">BEREIT</span>
+      </div>
+      <span class="pill" id="statusPill"><i></i><span id="statusText">GETRENNT</span></span>
+      <span class="version" id="appVersion">v—</span>
+    </div>
+  </header>
+
+  <div class="banner hidden" id="browserWarn">
+    <strong>Web Serial nicht verfügbar.</strong>
+    Dieses Fenster unterstützt keinen Zugriff auf serielle Schnittstellen. Bitte Microsoft Edge oder Google Chrome verwenden
+    (das Programm startet normalerweise automatisch ein passendes Fenster).
+  </div>
+
+  <main class="layout">
+    <!-- ============ LINKE SPALTE ============ -->
+    <section class="col-left">
+      <nav class="tabs" role="tablist">
+        <button class="tab active" data-tab="program" id="tabProgram">Programmieren</button>
+        <button class="tab" data-tab="console" id="tabConsole">Konsole</button>
+      </nav>
+
+      <!-- ================= PROGRAMMIEREN ================= -->
+      <div class="tab-page" id="pageProgram">
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">Verbindung</span>
+            <span class="panel-meta" id="connMeta">nicht verbunden</span>
+          </div>
+          <div class="grid2">
+            <label class="field">
+              <span>Baudrate</span>
+              <select id="baudrates">
+                <option value="921600" selected>921600</option>
+                <option value="460800">460800</option>
+                <option value="230400">230400</option>
+                <option value="115200">115200</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Reset vor Verbindung</span>
+              <select id="beforeMode">
+                <option value="default_reset" selected>default_reset</option>
+                <option value="usb_reset">usb_reset</option>
+                <option value="no_reset">no_reset</option>
+                <option value="no_reset_no_sync">no_reset_no_sync</option>
+              </select>
+            </label>
+          </div>
+          <div class="checks">
+            <label class="check"><input type="checkbox" id="debugLogging" /><span>Debug-Log anzeigen</span></label>
+            <label class="check" title="Unter Windows/macOS/Linux belegt meist der Systemtreiber den CH340 – dann schlägt WebUSB fehl. Nur nutzen, wenn Web Serial den Adapter nicht findet.">
+              <input type="checkbox" id="useWebUsb" /><span>WebUSB (CH340)</span>
+            </label>
+          </div>
+          <div class="btn-row">
+            <button class="btn primary" id="connectButton">Verbinden</button>
+            <button class="btn warn hidden" id="disconnectButton">Trennen</button>
+            <button class="btn ghost hidden" id="copyTraceButton" title="Trace-Protokoll in die Zwischenablage kopieren">Trace kopieren</button>
+          </div>
+
+          <div class="chipcard hidden" id="chipCard">
+            <div class="kv"><span>Chip</span><b id="ciChip">—</b></div>
+            <div class="kv"><span>Features</span><b id="ciFeatures">—</b></div>
+            <div class="kv"><span>Quarz</span><b id="ciCrystal">—</b></div>
+            <div class="kv"><span>MAC</span><b id="ciMac">—</b></div>
+            <div class="kv"><span>Flash-Größe</span><b id="ciFlash">—</b></div>
+            <div class="kv"><span>Bootloader @</span><b id="ciBoot">—</b></div>
+          </div>
+        </div>
+
+        <div class="panel" id="filesPanel">
+          <div class="panel-head">
+            <span class="panel-title">Flash-Dateien</span>
+            <span class="panel-meta" id="filesMeta">0 Dateien</span>
+          </div>
+
+          <div class="table-wrap">
+            <table class="ftable" id="fileTable">
+              <thead>
+                <tr><th style="width:110px">Adresse</th><th>Datei</th><th style="width:80px">Größe</th><th style="width:34px"></th></tr>
+              </thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+          </div>
+
+          <div class="dropzone" id="dropzone">
+            <div class="dz-text">.bin / .hex hierher ziehen</div>
+            <div class="btn-row center">
+              <button class="btn ghost small" id="addFile">+ BIN-Datei</button>
+              <button class="btn ghost small" id="addHexFile">+ HEX-Datei</button>
+              <button class="btn ghost small" id="clearFiles">Liste leeren</button>
+            </div>
+            <input type="file" id="binFileInput" accept=".bin" multiple hidden />
+            <input type="file" id="hexFileInput" accept=".hex" hidden />
+          </div>
+
+          <div class="hint">Adressen werden anhand des Dateinamens vorgeschlagen (bootloader, partition-table, boot_app0, ota_data, merged/factory, Anwendung → 0x10000) und lassen sich jederzeit ändern.</div>
+
+          <details class="advanced" id="flashAdvanced">
+            <summary>Flash-Optionen</summary>
+            <div class="grid3">
+              <label class="field">
+                <span>Flash-Modus</span>
+                <select id="flashMode">
+                  <option value="keep" selected>keep</option>
+                  <option value="dio">dio</option>
+                  <option value="qio">qio</option>
+                  <option value="dout">dout</option>
+                  <option value="qout">qout</option>
+                </select>
+              </label>
+              <label class="field">
+                <span>Flash-Frequenz</span>
+                <select id="flashFreq"><option value="keep">keep</option></select>
+              </label>
+              <label class="field">
+                <span>Flash-Größe</span>
+                <select id="flashSize">
+                  <option value="detect">detect</option>
+                  <option value="keep" selected>keep</option>
+                </select>
+              </label>
+            </div>
+            <div class="grid2">
+              <label class="field">
+                <span>Nach dem Flashen</span>
+                <select id="afterMode">
+                  <option value="hard_reset" selected>hard_reset</option>
+                  <option value="soft_reset">soft_reset</option>
+                  <option value="no_reset">no_reset</option>
+                  <option value="no_reset_stub">no_reset_stub</option>
+                </select>
+              </label>
+              <div class="checks col">
+                <label class="check"><input type="checkbox" id="compress" checked /><span>Komprimiert übertragen</span></label>
+                <label class="check"><input type="checkbox" id="verifyMd5" checked /><span>MD5 prüfen</span></label>
+              </div>
+            </div>
+          </details>
+
+          <div class="checks">
+            <label class="check danger"><input type="checkbox" id="eraseAll" /><span>Gesamten Flash vorher löschen</span></label>
+          </div>
+
+          <div class="progress-block hidden" id="progressBlock">
+            <div class="progress-label"><span id="progressText">—</span><span id="progressPct">0 %</span></div>
+            <div class="bar"><div class="bar-fill" id="progressFill"></div></div>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn primary big" id="programButton" disabled>Programmieren</button>
+            <button class="btn danger" id="eraseButton" disabled>Flash löschen</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <details class="advanced plain" id="readPanel">
+            <summary><span class="panel-title">Flash auslesen (Backup)</span></summary>
+            <div class="grid3">
+              <label class="field">
+                <span>Startadresse</span>
+                <input type="text" id="readAddr" value="0x0" spellcheck="false" />
+              </label>
+              <label class="field">
+                <span>Länge</span>
+                <input type="text" id="readSize" value="0x400000" spellcheck="false" />
+              </label>
+              <label class="field">
+                <span>&nbsp;</span>
+                <button class="btn ghost" id="readFullButton" disabled title="Länge auf erkannte Flash-Größe setzen">Ganzer Flash</button>
+              </label>
+            </div>
+            <div class="btn-row">
+              <button class="btn teal" id="readButton" disabled>Auslesen &amp; speichern</button>
+            </div>
+          </details>
+        </div>
+      </div>
+
+      <!-- ================= KONSOLE ================= -->
+      <div class="tab-page hidden" id="pageConsole">
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">Serielle Konsole</span>
+            <span class="panel-meta" id="consoleMeta">gestoppt</span>
+          </div>
+          <div class="grid3">
+            <label class="field">
+              <span>Baudrate</span>
+              <select id="consoleBaudrates">
+                <option value="115200" selected>115200</option>
+                <option value="74880">74880</option>
+                <option value="9600">9600</option>
+                <option value="19200">19200</option>
+                <option value="38400">38400</option>
+                <option value="57600">57600</option>
+                <option value="230400">230400</option>
+                <option value="460800">460800</option>
+                <option value="921600">921600</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>Reconnect-Pause (ms)</span>
+              <input type="number" id="reconnectDelay" value="1000" min="100" max="10000" step="100" />
+            </label>
+            <label class="field">
+              <span>Max. Versuche</span>
+              <input type="number" id="maxRetries" value="5" min="1" max="20" step="1" />
+            </label>
+          </div>
+          <div class="checks">
+            <label class="check"><input type="checkbox" id="colorize" checked /><span>IDF-Logs einfärben (E/W/I)</span></label>
+            <label class="check"><input type="checkbox" id="timestamps" /><span>Zeitstempel</span></label>
+          </div>
+          <div class="btn-row">
+            <button class="btn primary" id="consoleStartButton">Start</button>
+            <button class="btn warn hidden" id="consoleStopButton">Stopp</button>
+            <button class="btn ghost hidden" id="resetButton">Reset</button>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-head">
+            <span class="panel-title">Senden</span>
+          </div>
+          <div class="send-row">
+            <input type="text" id="sendInput" placeholder="Text an das Gerät senden …" disabled spellcheck="false" />
+            <select id="lineEnding" title="Zeilenende">
+              <option value="\r\n" selected>CR+LF</option>
+              <option value="\n">LF</option>
+              <option value="\r">CR</option>
+              <option value="">keins</option>
+            </select>
+            <button class="btn teal" id="sendButton" disabled>Senden</button>
+          </div>
+          <div class="hint">Tastatureingaben direkt im Terminal werden ebenfalls an das Gerät gesendet, solange die Konsole läuft.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============ RECHTE SPALTE ============ -->
+    <section class="col-right">
+      <div class="panel term-panel">
+        <div class="panel-head">
+          <span class="panel-title">Terminal</span>
+          <div class="btn-row tight">
+            <button class="btn ghost small" id="saveLogButton">Log speichern</button>
+            <button class="btn ghost small" id="clearTermButton">Leeren</button>
+          </div>
+        </div>
+        <div id="terminal"></div>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer">
+    <span id="footerInfo">esptool-js</span>
+    <span>Läuft lokal · keine Internetverbindung nötig</span>
+  </footer>
+
+  <div class="toasts" id="toasts"></div>
+
+  <script type="module" src="dist/app.js"></script>
+</body>
+</html>
