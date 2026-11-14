@@ -1,8 +1,9 @@
-node_modules/
 /build/
 /dist/
 /release/
 *.spec
+version_info.txt
+selftest.txt
 __pycache__/
 *.pyc
 .DS_Store

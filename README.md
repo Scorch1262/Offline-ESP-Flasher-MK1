@@ -1,84 +1,81 @@
 # ESP-Flash-Tool MK1
 
-Vollständig **offline** lauffähige Version von [esptool-js](https://espressif.github.io/esptool-js/) – dem seriellen Flasher für Espressif-Chips – als Windows-Programm im Dashboard-Design.
+Eigenständiges **Windows-Programm** zum Flashen von Espressif-Chips – voll funktionaler, komplett **offline** laufender Ersatz für [esptool-js](https://espressif.github.io/esptool-js/), im Dashboard-Design.
+Kein Browser, kein lokaler Webserver: eine einzelne `.exe` mit eigener Oberfläche (Qt) und dem offiziellen **esptool** von Espressif als Kern.
 
 ![Screenshot](assets/screenshot.png)
 
-**Version:** 1.0.0 · **esptool-js:** 0.7.1
+**Version:** 2.0.0 · **esptool:** 5.6.0
 
 ## Funktionen
 
-Alles, was die Original-Seite kann:
+Alles, was die esptool-js-Seite kann:
 
-- **Verbinden** mit ESP32, ESP32-S2/S3, C2/C3/C5/C6/C61, H2/H4, P4, ESP8266 u. a. (Baudrate 115200 – 921600)
-- **Programmieren** beliebig vieler `.bin`-Dateien mit frei wählbarer Adresse
+- **Verbinden** mit ESP32, ESP32-S2/S3, C2/C3/C5/C6/C61, H2/H4, P4, ESP8266 u. a. (Baudrate frei wählbar, 115200 – 921600 voreingestellt)
+- **Programmieren** beliebig vieler `.bin`-Dateien mit frei wählbarer Adresse, MD5-Prüfung nach dem Schreiben
 - **Intel-HEX-Dateien** (`.hex`) – jedes Segment wird mit seiner Adresse übernommen
-- Flash-Modus, Flash-Frequenz und Flash-Größe (Auswahl passend zum erkannten Chip)
+- Flash-Modus, -Frequenz und -Größe (Auswahl passend zum erkannten Chip)
 - **Gesamten Flash löschen** bzw. vor dem Programmieren komplett löschen
 - **Konsole** (serieller Monitor) mit automatischer Wiederverbindung, Reset-Taste und IDF-Log-Einfärbung (E/W/I)
-- Debug-Log, Trace kopieren, WebUSB-Modus für CH340
+- Debug-/Trace-Ausgabe
 
 Zusätzlich:
 
-- **Drag & Drop** von `.bin`/`.hex` auf das Fenster
+- **Port-Auswahl mit Automatik** – die Liste aktualisiert sich selbst, ein neu eingestecktes Board wird automatisch ausgewählt
+- **Drag & Drop** von `.bin`/`.hex` ins Fenster oder auf die exe (bzw. „Öffnen mit“)
 - **Automatische Adressvorschläge** anhand des Dateinamens (bootloader → chipabhängig 0x0/0x1000/0x2000, partition-table → 0x8000, ota_data → 0xd000, boot_app0 → 0xe000, merged/factory → 0x0, Anwendung → 0x10000); manuell geänderte Adressen werden pro Dateiname gemerkt
-- Prüfung auf doppelte oder **überlappende Adressen**
+- Prüfung auf doppelte, **überlappende** oder zu große Adressbereiche
 - **Chip-Infokarte** (Chip, Features, Quarz, MAC, Flash-Größe, Bootloader-Adresse)
 - **Flash auslesen (Backup)** als `.bin` – ganzer Flash oder Bereich
-- Reset-Modus vor/nach dem Flashen, Komprimierung und MD5-Prüfung abschaltbar
+- „**Unveränderte Inhalte überspringen**“ (schnelles erneutes Flashen), Komprimierung abschaltbar, Reset-Modus vor/nach dem Flashen, Betrieb **ohne Flasher-Stub**
 - **Text senden** in der Konsole (CR+LF / LF / CR), Tastatureingabe direkt im Terminal, Zeitstempel
-- Terminal-**Log speichern**
-- Einstellungen bleiben erhalten
+- Terminal-Inhalt **kopieren / als Log speichern**
+- Alle Einstellungen bleiben erhalten
 
 ## Benutzung
 
 1. ZIP aus dem GitHub-Release (oder dem Actions-Artefakt) entpacken.
-2. `ESP-Flash-Tool-MK1.exe` starten – es öffnet sich ein eigenes Programmfenster.
-3. Board per USB anschließen, **Verbinden** klicken und den COM-Port auswählen.
-4. Dateien hinzufügen, Adressen prüfen, **Programmieren**.
+2. `ESP-Flash-Tool-MK1.exe` starten.
+3. Board per USB anschließen – der Port wird automatisch ausgewählt.
+4. **Verbinden**, Dateien hinzufügen, Adressen prüfen, **Programmieren**.
 
-Das Fenster nutzt die Web-Serial-Schnittstelle von **Microsoft Edge** (bei Windows 10/11 immer vorhanden) oder **Google Chrome**. Das Programm startet dafür automatisch ein separates App-Fenster mit eigenem Profil; eine Internetverbindung wird nie benötigt. Beim Schließen des Fensters beendet sich das Programm nach wenigen Sekunden selbst.
+Treiber für USB-UART-Wandler (CP210x, CH34x, FTDI) müssen wie bei jedem Flash-Tool installiert sein. Boards mit nativem USB (ESP32-S3/C3/C6 …) funktionieren ohne Zusatztreiber.
 
-Treiber für USB-UART-Wandler (CP210x, CH34x, FTDI) müssen wie bei jedem Flash-Tool installiert sein.
-
-### Startoptionen
-
-```
-ESP-Flash-Tool-MK1.exe --port 8775     anderen lokalen Port verwenden (Standard 8775)
-ESP-Flash-Tool-MK1.exe --no-browser    nur Server starten, Adresse selbst in Edge/Chrome öffnen
-ESP-Flash-Tool-MK1.exe --version
-```
-
-Der Server lauscht ausschließlich auf `127.0.0.1` (Web Serial funktioniert nur in einem sicheren Kontext, also lokal).
+Falls der Chip nicht antwortet: **BOOT**-Taste gedrückt halten, „Verbinden“ klicken und loslassen, sobald „Connecting…“ erscheint.
 
 ## Projektaufbau
 
 ```
-.github/workflows/build-exe.yml   GitHub Actions: Frontend bauen → exe (PyInstaller) → ZIP / Release
-app.py                            Python-Starter: lokaler Webserver + App-Fenster (nur Standardbibliothek)
-src/main.js                       Oberfläche & Logik (nutzt esptool-js)
-web/index.html, web/style.css     Layout und Dashboard-Design
-web/dist/                         gebündeltes Frontend (wird durch "npm run build" erzeugt)
-build.mjs                         esbuild-Konfiguration
+.github/workflows/build-exe.yml   GitHub Actions: exe bauen → Selbsttest → ZIP / Release
+app.py                            Startpunkt (Qt-Anwendung, Selbsttest)
+espflash/mainwindow.py            Oberfläche und Abläufe
+espflash/session.py               Chip-Verbindung, Flashen, Löschen, Auslesen (esptool-API)
+espflash/console.py               Serieller Monitor mit Auto-Reconnect
+espflash/terminal.py              Terminal-Anzeige mit ANSI-Farben
+espflash/logbridge.py             leitet esptool-Ausgaben & Fortschritt in die Oberfläche
+espflash/theme.py                 Dashboard-Design (Stylesheet)
+tools/make_version_file.py        Windows-Versionsinfo für die exe
 assets/                           Icon und Screenshot
+requirements.txt                  feste Versionen der Abhängigkeiten
 ```
 
 ## Build per GitHub Actions
 
-- Jeder Push auf `main`/`master` erzeugt ein Artefakt `ESP-Flash-Tool-MK1-v<Version>-windows.zip` (exe + README + Lizenzen).
-- Ein Tag `v*` (z. B. `v1.0.0`) erzeugt zusätzlich ein GitHub-Release mit der ZIP-Datei.
-- Die Versionsnummer steht in `package.json` **und** `app.py` (`APP_VERSION`) – der Workflow bricht ab, wenn sie nicht übereinstimmen.
+- Jeder Push auf `main`/`master` erzeugt das Artefakt `ESP-Flash-Tool-MK1-v<Version>-windows.zip` (exe + README + Lizenzen).
+- Ein Tag `v*` (z. B. `v2.0.0`) erzeugt zusätzlich ein GitHub-Release mit der ZIP-Datei. Tag und `APP_VERSION` in `espflash/__init__.py` müssen übereinstimmen.
+- Die fertige exe wird im Workflow per `--selftest` geprüft (Oberfläche, Chip-Definitionen, Flasher-Stubs).
 
-## Lokal bauen / starten
+## Lokal starten / bauen
 
 ```bash
-npm ci
-npm run build
-python app.py                 # startet ohne exe
+pip install -r requirements.txt
+python app.py
+
 pip install pyinstaller
-pyinstaller --onefile --windowed --name ESP-Flash-Tool-MK1 --icon assets/icon.ico --add-data "web;web" app.py
+pyinstaller --onefile --windowed --name ESP-Flash-Tool-MK1 --icon assets/icon.ico ^
+  --add-data "assets;assets" --collect-data esptool --collect-submodules esptool.targets app.py
 ```
 
 ## Lizenzen
 
-Basiert auf [esptool-js](https://github.com/espressif/esptool-js) von Espressif (Apache-2.0). Übersicht aller gebündelten Bibliotheken: [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).
+Der Flash-Kern ist [esptool](https://github.com/espressif/esptool) von Espressif (GPL-2.0-or-later); die gebaute exe steht damit ebenfalls unter GPL-2.0-or-later. Übersicht aller Bestandteile: [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md).

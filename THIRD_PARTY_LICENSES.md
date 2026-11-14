@@ -1,17 +1,19 @@
 # Verwendete Fremdsoftware
 
-Das ESP-Flash-Tool MK1 bündelt folgende Open-Source-Bibliotheken (alle offline in `web/dist/app.js` enthalten):
+Die Windows-exe des ESP-Flash-Tool MK1 enthält folgende Open-Source-Komponenten:
 
 | Paket | Version | Lizenz | Quelle |
 |---|---|---|---|
-| esptool-js (inkl. Flasher-Stubs) | 0.7.1 | Apache-2.0 | https://github.com/espressif/esptool-js |
-| @xterm/xterm | 6.0.0 | MIT | https://github.com/xtermjs/xterm.js |
-| @xterm/addon-fit | 0.11.0 | MIT | https://github.com/xtermjs/xterm.js |
-| web-serial-polyfill | 1.0.15 | Apache-2.0 | https://github.com/google/web-serial-polyfill |
-| spark-md5 | 3.0.2 | MIT / WTFPL | https://github.com/satazor/js-spark-md5 |
-| pako | 2.2.0 | MIT und Zlib | https://github.com/nodeca/pako |
-| atob-lite | 2.0.0 | MIT | https://github.com/hughsk/atob-lite |
+| esptool (inkl. Flasher-Stubs) | 5.6.0 | GPL-2.0-or-later | https://github.com/espressif/esptool |
+| esp-pylib | 1.x | Apache-2.0 | https://github.com/espressif/esp-pylib |
+| PySide6 / Qt | 6.12.0 | LGPL-3.0 | https://www.qt.io/qt-for-python |
+| pyserial | 3.5 | BSD-3-Clause | https://github.com/pyserial/pyserial |
+| intelhex | 2.x | BSD-3-Clause | https://github.com/python-intelhex/intelhex |
+| rich, rich-click, click | – | MIT / BSD | https://github.com/Textualize/rich |
+| cryptography, reedsolo, PyYAML | – | Apache-2.0/BSD, Public Domain/MIT, MIT | (Abhängigkeiten von esptool) |
+| Python | 3.12 | PSF-2.0 | https://www.python.org |
+| PyInstaller-Bootloader | – | GPL-2.0 mit Ausnahme für gebündelte Programme | https://pyinstaller.org |
 
-Die Windows-exe wird mit PyInstaller (GPL mit Bootloader-Ausnahme) aus Python (PSF-Lizenz) erzeugt.
+Weil esptool unter der GPL-2.0-or-later steht, wird die gebaute exe ebenfalls unter **GPL-2.0-or-later** weitergegeben. Der vollständige Quelltext liegt in diesem Repository; der Lizenztext von esptool liegt der ZIP-Datei als `LICENSE-esptool-GPL-2.0.txt` bei.
 
-Die vollständigen Lizenztexte liegen in den jeweiligen Paketen unter `node_modules/` bzw. in den verlinkten Repositories.
+PySide6/Qt wird unter der LGPL-3.0 genutzt (dynamisch gelinkte Qt-Bibliotheken innerhalb des PyInstaller-Pakets).

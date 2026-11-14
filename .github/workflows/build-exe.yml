@@ -1,0 +1,85 @@
+name: Build Windows EXE
+
+on:
+  push:
+    branches: [main, master]
+    tags: ["v*"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Python einrichten
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Abhängigkeiten installieren
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyinstaller
+
+      - name: Version ermitteln
+        shell: pwsh
+        run: |
+          $v = (Select-String -Path espflash/__init__.py -Pattern 'APP_VERSION = "(.+)"').Matches[0].Groups[1].Value
+          Write-Host "Version: $v"
+          "APP_VERSION=$v" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          if ($env:GITHUB_REF -like "refs/tags/v*") {
+            $tag = $env:GITHUB_REF.Substring(11)
+            if ($tag -ne $v) { throw "Tag v$tag passt nicht zu APP_VERSION $v" }
+          }
+          python tools/make_version_file.py version_info.txt
+
+      - name: EXE bauen (PyInstaller, eine Datei)
+        run: >
+          pyinstaller --noconfirm --clean --onefile --windowed
+          --name ESP-Flash-Tool-MK1
+          --icon assets/icon.ico
+          --version-file version_info.txt
+          --add-data "assets;assets"
+          --collect-data esptool
+          --collect-submodules esptool.targets
+          app.py
+
+      - name: Selbsttest der exe
+        shell: pwsh
+        run: |
+          $p = Start-Process -FilePath dist\ESP-Flash-Tool-MK1.exe -ArgumentList "--selftest","selftest.txt" -Wait -PassThru
+          Get-Content selftest.txt
+          if ($p.ExitCode -ne 0) { throw "Selbsttest fehlgeschlagen (Exitcode $($p.ExitCode))" }
+
+      - name: ZIP packen
+        shell: pwsh
+        run: |
+          $name = "ESP-Flash-Tool-MK1-v$env:APP_VERSION-windows"
+          $dir = "release\$name"
+          New-Item -ItemType Directory -Force -Path $dir | Out-Null
+          Copy-Item dist\ESP-Flash-Tool-MK1.exe $dir
+          Copy-Item README.md $dir
+          Copy-Item THIRD_PARTY_LICENSES.md $dir
+          python -c "import importlib.metadata as m, shutil; f=[x for x in m.files('esptool') if x.name.upper().startswith('LICENSE')][0]; shutil.copy(f.locate(), r'$dir\LICENSE-esptool-GPL-2.0.txt')"
+          Compress-Archive -Path "$dir\*" -DestinationPath "release\$name.zip" -Force
+          "ZIP_NAME=$name" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Artefakt hochladen
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.ZIP_NAME }}
+          path: release/${{ env.ZIP_NAME }}.zip
+
+      - name: GitHub-Release erstellen (nur bei Tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: release/${{ env.ZIP_NAME }}.zip
+          generate_release_notes: true
